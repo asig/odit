@@ -12,9 +12,9 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/asig/ofs/internal/disk"
-	"github.com/asig/ofs/internal/filesystem"
-	"github.com/asig/ofs/internal/fuse"
+	"github.com/asig/odit/internal/disk"
+	"github.com/asig/odit/internal/filesystem"
+	"github.com/asig/odit/internal/fuse"
 )
 
 const (

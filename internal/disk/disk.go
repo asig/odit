@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/asig/ofs/internal/util"
+	"github.com/asig/odit/internal/util"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/asig/ofs
+module github.com/asig/odit
 
 go 1.25.1
 

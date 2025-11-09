@@ -7,9 +7,9 @@ import (
 
 	fuse "bazil.org/fuse"
 	fuse_fs "bazil.org/fuse/fs"
-
-	"github.com/asig/ofs/internal/filesystem"
 	"github.com/rs/zerolog/log"
+
+	"github.com/asig/odit/internal/filesystem"
 )
 
 type FS struct {

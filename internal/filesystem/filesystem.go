@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/asig/ofs/internal/disk"
-	"github.com/asig/ofs/internal/util"
+	"github.com/asig/odit/internal/disk"
+	"github.com/asig/odit/internal/util"
 	"github.com/rs/zerolog/log"
 )
 
