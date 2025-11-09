@@ -25,12 +25,11 @@ import (
 
 	fuse "bazil.org/fuse"
 	fuse_fs "bazil.org/fuse/fs"
-	"github.com/rs/zerolog/log"
-
 	"github.com/asig/odit/internal/filesystem"
+	"github.com/rs/zerolog/log"
 )
 
-type FS struct {
+type filesys struct {
 	fs  *filesystem.FileSystem
 	uid uint32
 	gid uint32
@@ -53,14 +52,14 @@ type fileHandle struct {
 }
 
 func NewFS(fs *filesystem.FileSystem) fuse_fs.FS {
-	return FS{
+	return filesys{
 		fs:  fs,
 		uid: uint32(os.Getuid()),
 		gid: uint32(os.Getgid()),
 	}
 }
 
-func (f FS) Root() (fuse_fs.Node, error) {
+func (f filesys) Root() (fuse_fs.Node, error) {
 	return &dirNode{fs: f.fs, uid: f.uid, gid: f.gid}, nil
 }
 
@@ -76,9 +75,11 @@ func (d dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error) 
 	log.Debug().Msgf("FUSE Lookup for %s", name)
 	file, err := d.fs.Find(name)
 	if err != nil {
+		log.Debug().Msgf("FUSE Lookup: error finding file %s: %v", name, err)
 		return nil, err
 	}
 	if file == nil {
+		log.Debug().Msgf("FUSE Lookup: file %s not found", name)
 		return nil, syscall.ENOENT
 	}
 
@@ -106,14 +107,17 @@ func (d dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse
 
 	file, err := d.fs.Find(req.Name)
 	if err != nil {
+		log.Debug().Msgf("FUSE Create: error finding file %s: %v", req.Name, err)
 		return nil, nil, err
 	}
 	if file != nil {
+		log.Debug().Msgf("FUSE Create: file %s already exists", req.Name)
 		return nil, nil, syscall.EEXIST
 	}
 
 	f, err := d.fs.NewFile(req.Name)
 	if err != nil {
+		log.Debug().Msgf("FUSE Create: error creating file %s: %v", req.Name, err)
 		return nil, nil, err
 	}
 	f.Register()
@@ -128,9 +132,11 @@ func (d dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 
 	f, err := d.fs.Find(req.Name)
 	if err != nil {
+		log.Debug().Msgf("FUSE Remove: error finding file %s: %v", req.Name, err)
 		return err
 	}
 	if f == nil {
+		log.Debug().Msgf("FUSE Remove: file %s not found", req.Name)
 		return syscall.ENOENT
 	}
 
@@ -187,9 +193,11 @@ func (h fileHandle) Write(ctx context.Context, req *fuse.WriteRequest, resp *fus
 }
 
 func (h fileHandle) Flush(ctx context.Context, req *fuse.FlushRequest) error {
+	log.Debug().Msgf("FUSE Flush for file %s", h.file.file.Name())
 	return nil
 }
 
 func (h fileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+	log.Debug().Msgf("FUSE Release for file %s", h.file.file.Name())
 	return nil
 }
