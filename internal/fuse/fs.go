@@ -141,7 +141,7 @@ func (d dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 func (f fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	log.Debug().Msgf("FUSE Attr for file %s", f.file.Name())
 	a.Inode = uint64(f.file.HeaderAddr())
-	a.Mode = 0666 // read-only
+	a.Mode = 0666 // regular file with rw-rw-rw- permissions
 	a.Size = uint64(f.file.Size())
 	creationTime := f.file.CreationTime()
 	a.Ctime = creationTime
@@ -158,7 +158,7 @@ func (f fileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.Op
 }
 
 func (h fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
-	log.Debug().Msgf("FUSE Read for file %s: offset = %d, size = %d", h.file.file.Name(), req.Offset, req.Size)
+	log.Debug().Msgf("FUSE Read for file %s: offset = %d, size = %d, file-size = %d", h.file.file.Name(), req.Offset, req.Size, h.file.file.Size())
 	if req.Offset >= int64(h.file.file.Size()) {
 		log.Debug().Msgf("FUSE Read for file %s: offset beyond EOF, returning empty data", h.file.file.Name())
 		resp.Data = []byte{}
@@ -171,8 +171,10 @@ func (h fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.
 	}
 	buf, err := h.file.file.ReadAt(uint32(req.Offset), uint32(req.Size))
 	if err != nil {
+		log.Debug().Msgf("FUSE Read for file %s: error reading data: %v", h.file.file.Name(), err)
 		return err
 	}
+	log.Debug().Msgf("FUSE Read for file %s: read %d bytes", h.file.file.Name(), len(buf))
 	resp.Data = buf
 	return nil
 }
