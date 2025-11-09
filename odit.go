@@ -106,13 +106,58 @@ Commands:
 }
 
 func readFromImage(fs *filesystem.FileSystem, src, dest string) {
-	fmt.Fprintf(os.Stderr, "read not implemented yet 😢\n")
-	// TODO(asginer): Implement read command
+	f, err := fs.Find(src)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error finding file %s: %s\n", src, err)
+		return
+	}
+	if f == nil {
+		fmt.Fprintf(os.Stderr, "File not found: %s\n", src)
+		return
+	}
+
+	buf, err := f.ReadAt(0, f.Size())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading file %s: %s\n", src, err)
+		return
+	}
+
+	outFile, err := os.Create(dest)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating file %s: %s\n", dest, err)
+		return
+	}
+	defer outFile.Close()
+
+	_, err = outFile.Write(buf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing to file %s: %s\n", dest, err)
+		return
+	}
+
+	fmt.Printf("Copied %d bytes from %s to %s\n", len(buf), src, dest)
 }
 
 func writeToImage(fs *filesystem.FileSystem, src, dest string) {
-	fmt.Fprintf(os.Stderr, "write not implemented yet 😢\n")
-	// TODO(asginer): Implement write command
+	buf, err := os.ReadFile(src)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading file %s: %s\n", src, err)
+		return
+	}
+
+	f, err := fs.NewFile(dest)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating file %s in image: %s\n", dest, err)
+		return
+	}
+	f.Register()
+	err = f.WriteAt(0, buf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing to file %s in image: %s\n", dest, err)
+		return
+	}
+
+	fmt.Printf("Copied %d bytes from %s to %s\n", len(buf), src, dest)
 }
 
 func listFiles(fs *filesystem.FileSystem) {
