@@ -137,8 +137,9 @@ func fileInfo(fs *filesystem.FileSystem, file string) {
 		return
 	}
 	fmt.Printf("File: %s\n", f.Name())
-	fmt.Printf("Address: %d\n", f.HeaderAddr())
+	fmt.Printf("1st block @ %d\n", f.HeaderAddr())
 	fmt.Printf("Size: %d bytes\n", f.Size())
+	fmt.Printf("Creation Time: %s\n", f.CreationTime().Format(time.DateTime))
 }
 
 func initLogging(level zerolog.Level) {

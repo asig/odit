@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"time"
 
 	"github.com/asig/odit/internal/disk"
 	"github.com/asig/odit/internal/util"
@@ -50,6 +51,10 @@ func (f *File) physicalPos(p uint32) (sector, offset uint32) {
 	sector = p / sectorSize
 	offset = p % sectorSize
 	return
+}
+
+func (f *File) CreationTime() time.Time {
+	return f.header.creationTime()
 }
 
 // getSectorAddr returns the disk address of the i-th sector of the file.

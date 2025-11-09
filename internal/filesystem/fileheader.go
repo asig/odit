@@ -20,6 +20,7 @@ package filesystem
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/asig/odit/internal/disk"
 	"github.com/asig/odit/internal/util"
@@ -93,12 +94,45 @@ func (f *fileHeader) setBleng(bleng uint16) {
 	util.WriteLEUint16(f[:], ofsBleng, bleng)
 }
 
-func (f *fileHeader) date() uint32 {
-	return util.ReadLEUint32(f[:], ofsDate)
+func (f *fileHeader) creationTime() time.Time {
+	// Oberon date/time format according to Project Oberon (1992) [https://people.inf.ethz.ch/wirth/ProjectOberon1992.pdf] :
+	//
+	// time = (hour*64 + min)*64 + sec
+	// date = (year*16 + month)*32 + day
+
+	// Oberon date/time format according to Native Oberon 2.3.6 source code:
+	/*
+		WritePair(" ", d MOD 32); WritePair(".", d DIV 32 MOD 16);
+		Write(W, ".");  WriteInt(W, 1900 + d DIV 512, 1);
+		WritePair(" ", t DIV 4096 MOD 32); WritePair(":", t DIV 64 MOD 64); WritePair(":", t MOD 64)
+	*/
+
+	d := util.ReadLEUint32(f[:], ofsDate)
+	day := d % 32
+	month := (d / 32) % 16
+	year := 1900 + (d / 512)
+
+	t := util.ReadLEUint32(f[:], ofsTime)
+	sec := t % 64
+	min := (t / 64) % 64
+	hour := (t / 4096) % 32
+
+	return time.Date(int(year), time.Month(month), int(day), int(hour), int(min), int(sec), 0, time.UTC)
 }
 
-func (f *fileHeader) time() uint32 {
-	return util.ReadLEUint32(f[:], ofsTime)
+func (f *fileHeader) setCreationTime(t time.Time) {
+	year := uint32(t.Year() - 1900)
+	month := uint32(t.Month())
+	day := uint32(t.Day())
+	hour := uint32(t.Hour())
+	min := uint32(t.Minute())
+	sec := uint32(t.Second())
+
+	date := (year * 512) + (month * 32) + day
+	time := (hour * 4096) + (min * 64) + sec
+
+	util.WriteLEUint32(f[:], ofsDate, date)
+	util.WriteLEUint32(f[:], ofsTime, time)
 }
 
 func (f *fileHeader) getExtensionTable() []uint32 {

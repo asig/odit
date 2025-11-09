@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"time"
 
 	"github.com/asig/odit/internal/disk"
 	"github.com/asig/odit/internal/util"
@@ -61,6 +62,7 @@ func New(d *disk.Disk) *FileSystem {
 }
 
 func (fs *FileSystem) Close() error {
+	log.Debug().Msg("Closing filesystem")
 	if fs.filesDirty {
 		err := fs.writeDirectoryToDisk()
 		if err != nil {
@@ -68,12 +70,13 @@ func (fs *FileSystem) Close() error {
 		}
 
 	}
+	log.Debug().Msg("Filesystem closed")
 
 	return nil
 }
 
 func (fs *FileSystem) writeDirectoryToDisk() error {
-	log.Info().Msg("Writing directory to disk")
+	log.Debug().Msg("Writing directory to disk")
 
 	// Ensure all files are sorted by name
 	sort.Slice(fs.files, func(i, j int) bool {
@@ -570,6 +573,18 @@ func (fs *FileSystem) Find(name string) (*File, error) {
 	return fs.NewFileFromFileHeader(e.adr)
 }
 
+func (fs *FileSystem) Remove(name string) bool {
+	for idx, entry := range fs.files {
+		if entry.name == name {
+			// Remove file entry
+			fs.files = append(fs.files[:idx], fs.files[idx+1:]...)
+			fs.filesDirty = true
+			return true
+		}
+	}
+	return false
+}
+
 func (fs *FileSystem) findFile(pred func(dirEntry) bool) (e *dirEntry, err error) {
 	for _, entry := range fs.files {
 		if pred(entry) {
@@ -723,6 +738,7 @@ func (fs *FileSystem) NewFile(name string) (*File, error) {
 	fileHeader.setAleng(0)
 	fileHeader.setBleng(headerSize)
 	fileHeader.setSectorTableEntry(0, headerAddr)
+	fileHeader.setCreationTime(time.Now())
 	fs.disk.PutSector(headerAddr, disk.Sector(fileHeader))
 
 	return &File{
