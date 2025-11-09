@@ -29,7 +29,6 @@ import (
 const (
 	dirPgSize    = 50
 	dirEntrySize = fnLength + 8
-	n            = dirPgSize / 2
 
 	dirMark = 0x9B1EA38D
 )

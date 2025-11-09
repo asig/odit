@@ -21,7 +21,6 @@ package filesystem
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"time"
 
 	"github.com/asig/odit/internal/disk"
@@ -82,11 +81,8 @@ func (f *File) getSectorAddr(i uint32) uint32 {
 }
 
 func (f *File) WriteAt(pos uint32, data []byte) error {
-	fmt.Fprintf(os.Stderr, "CURRENT SIZE OF FILE %s: %d\n", f.Name(), f.Size())
 	minSize := pos + uint32(len(data))
 	f.ensureSize(minSize)
-
-	fmt.Fprintf(os.Stderr, "CURRENT SIZE OF FILE %s: %d\n", f.Name(), f.Size())
 
 	firstSectorIdx, firstOffset := f.physicalPos(pos)
 

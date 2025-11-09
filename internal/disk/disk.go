@@ -33,13 +33,6 @@ const (
 
 	bs  = 512             // disk block size
 	bps = SectorSize / bs // blocks per sector
-
-	maxDrives     = 4
-	MaxPartitions = 32
-	reserved      = 32 // sectors reserved for writing during trap handling
-
-	defaultCacheSize = 100 // default sector cache size
-	cacheReserved    = 8   // cache sectors reserved for writing during trap handling
 )
 
 type Sector [SectorSize]byte
@@ -57,13 +50,6 @@ type partition struct {
 	partitionType uint8
 	start         uint32
 	size          uint32
-}
-
-type nodeRec struct {
-	data  [SectorSize]byte
-	next  *nodeRec
-	adr   int64
-	dirty bool
 }
 
 func Open(imagePath string) (*Disk, error) {
@@ -90,52 +76,6 @@ func (d *Disk) Size() uint32 {
 }
 
 func (d *Disk) init() error {
-	/*
-		PROCEDURE InitTable;
-		CONST BootDiskette = 0;
-		VAR s, x, pn, pi: LONGINT;  b: ARRAY BS OF CHAR;  pt: ARRAY MaxPartitions OF Partition;
-		BEGIN
-			native := TRUE;
-			GetBlocks(BootDiskette, 0, 1, b, 0);	(* read boot block of first disk to check if diskette *)
-			x := 0;  SYSTEM.GET(SYSTEM.ADR(b[510]), SYSTEM.VAL(INTEGER, x));
-			b[0] := "x"; b[1] := "x"; b[2] := "x";  b[9] := 0X;
-			IF (x = 0AA55H) & (b = "xxxOBERON") & (b[24H] = 0X) THEN	(* diskette with valid boot block *)
-				ddrive := BootDiskette;  partitionoffset := 0;
-				GetParams(BootDiskette, x, pn, pi);
-				partitionlen := x * pn * pi
-			ELSE	(* read partition table, finding first Native Oberon partition *)
-				ReadPartitionTable(pt, pn);
-				pi := 0;  x := pn;
-				WHILE pi # x DO
-					IF pt[pi].type = parttype THEN x := pi
-					ELSE INC(pi)
-					END
-				END;
-				IF pi = pn THEN error := "Partition not found";  ShowPartitionTable(pt, pn); RETURN END;
-				partitionoffset := pt[pi].start;  partitionlen := pt[pi].size;
-				ddrive := pt[pi].drive;
-				GetBlocks(ddrive, partitionoffset, 1, b, 0);	(* read boot block to get offset *)
-				x := 0;  SYSTEM.GET(SYSTEM.ADR(b[510]), SYSTEM.VAL(INTEGER, x));
-				b[0] := "x"; b[1] := "x"; b[2] := "x";  b[9] := 0X;
-				IF (x # 0AA55H) OR (b # "xxxOBERON") THEN error := "Bad boot block";  RETURN END
-			END;
-			rootoffset := 0;  SYSTEM.GET(SYSTEM.ADR(b[0EH]), SYSTEM.VAL(INTEGER, rootoffset));
-			s := 0;  SYSTEM.GET(SYSTEM.ADR(b[13H]), SYSTEM.VAL(INTEGER, s));	(* total size *)
-			IF s = 0 THEN SYSTEM.GET(SYSTEM.ADR(b[20H]), s) END;
-			IF partitionlen > s THEN partitionlen := s END;	(* limit to size of file system *)
-			ASSERT(partitionlen > 0);
-				(* total size of file system *)
-			nummaxdisk := (partitionlen-rootoffset) DIV BPS;
-			nummax := nummaxdisk;
-			IF writein & (Csize > nummax) THEN nummax := Csize END;	(* use the full cache *)
-				(* set up sector reservation table *)
-			s := (nummax+1+31) DIV 32;
-			NEW(map, s);
-			WHILE s # 0 DO DEC(s); map[s] := 0 END;
-			INCL(SYSTEM.VAL(SET, map[0]), 0)	(* reserve sector 0 (illegal to use) *)
-		END InitTable;
-	*/
-
 	// Read partition table, finding first Native Oberon partition
 	partitions, err := d.readPartitionTable()
 	if err != nil {
