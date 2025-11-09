@@ -124,7 +124,7 @@ func (f *File) WriteAt(pos uint32, data []byte) error {
 }
 
 func (f *File) ReadAt(pos uint32, l uint32) ([]byte, error) {
-	if f.Size() > pos+l {
+	if pos+l > f.Size() {
 		l = f.Size() - pos
 	}
 	var data []byte
