@@ -48,6 +48,10 @@ type fileNode struct {
 	gid  uint32
 }
 
+type fileHandle struct {
+	file *fileNode
+}
+
 func NewFS(fs *filesystem.FileSystem) fuse_fs.FS {
 	return FS{
 		fs:  fs,
@@ -97,21 +101,93 @@ func (d dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	return res, nil
 }
 
+func (d dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fuse_fs.Node, fuse_fs.Handle, error) {
+	log.Debug().Msgf("FUSE Create for %s", req.Name)
+
+	file, err := d.fs.Find(req.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if file != nil {
+		return nil, nil, syscall.EEXIST
+	}
+
+	f, err := d.fs.NewFile(req.Name)
+	if err != nil {
+		return nil, nil, err
+	}
+	f.Register()
+
+	node := fileNode{file: f, uid: d.uid, gid: d.gid}
+	handle := fileHandle{file: &node}
+	return node, handle, nil
+}
+
+func (d dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+	log.Debug().Msgf("FUSE Remove for %s", req.Name)
+
+	f, err := d.fs.Find(req.Name)
+	if err != nil {
+		return err
+	}
+	if f == nil {
+		return syscall.ENOENT
+	}
+
+	d.fs.Remove(req.Name)
+	return nil
+}
+
 func (f fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	log.Debug().Msgf("FUSE Attr for file %s", f.file.Name())
 	a.Inode = uint64(f.file.HeaderAddr())
 	a.Mode = 0666 // read-only
 	a.Size = uint64(f.file.Size())
+	creationTime := f.file.CreationTime()
+	a.Ctime = creationTime
+	a.Mtime = creationTime
+	a.Atime = creationTime
 	a.Uid = f.uid
 	a.Gid = f.gid
 	return nil
 }
 
-func (f fileNode) ReadAll(ctx context.Context) ([]byte, error) {
-	log.Debug().Msgf("FUSE ReadAll for file %s", f.file.Name())
-	buf, err := f.file.ReadAt(0, f.file.Size())
-	if err != nil {
-		return nil, err
+func (f fileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fuse_fs.Handle, error) {
+	log.Debug().Msgf("FUSE Open for file %s: req = %+v", f.file.Name(), req)
+	return fileHandle{file: &f}, nil
+}
+
+func (h fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+	log.Debug().Msgf("FUSE Read for file %s: offset = %d, size = %d", h.file.file.Name(), req.Offset, req.Size)
+	if req.Offset >= int64(h.file.file.Size()) {
+		log.Debug().Msgf("FUSE Read for file %s: offset beyond EOF, returning empty data", h.file.file.Name())
+		resp.Data = []byte{}
+		return nil
 	}
-	return buf, nil
+	if req.Offset+int64(req.Size) > int64(h.file.file.Size()) {
+		log.Debug().Msgf("FUSE Read for file %s: adjusting read size to avoid EOF", h.file.file.Name())
+		req.Size = int(h.file.file.Size() - uint32(req.Offset))
+		log.Debug().Msgf("FUSE Read for file %s: new size = %d", h.file.file.Name(), req.Size)
+	}
+	buf, err := h.file.file.ReadAt(uint32(req.Offset), uint32(req.Size))
+	if err != nil {
+		return err
+	}
+	resp.Data = buf
+	return nil
+}
+
+func (h fileHandle) Write(ctx context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
+	log.Debug().Msgf("FUSE Write for file %s: req = %+v", h.file.file.Name(), req)
+	h.file.file.WriteAt(uint32(req.Offset), req.Data)
+	resp.Size = len(req.Data)
+	return nil
+}
+
+func (h fileHandle) Flush(ctx context.Context, req *fuse.FlushRequest) error {
+	return nil
+}
+
+func (h fileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+	return nil
 }
