@@ -7,11 +7,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asig/ofs/internal/disk"
-	"github.com/asig/ofs/internal/filesystem"
-
+	bazil_fuse "bazil.org/fuse"
+	bazil_fuse_fs "bazil.org/fuse/fs"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
+	"github.com/asig/ofs/internal/disk"
+	"github.com/asig/ofs/internal/filesystem"
+	"github.com/asig/ofs/internal/fuse"
 )
 
 const (
@@ -20,7 +23,7 @@ const (
 
 var (
 	flagImage    = flag.String("image", "", "Image to work on")
-	flagLogLevel = newLogLevelFlag(zerolog.InfoLevel, "log-level", "Log level (trace, debug, info, warn, error, fatal, panic)")
+	flagLogLevel = newLogLevelFlag(zerolog.ErrorLevel, "log-level", "Log level (trace, debug, info, warn, error, fatal, panic)")
 )
 
 func newLogLevelFlag(value zerolog.Level, name string, usage string) *logLevelFlag {
@@ -52,23 +55,46 @@ func (f *logLevelFlag) Get() zerolog.Level {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, `Usage: %s -image <image> [command]
+	fmt.Fprintf(os.Stderr, `Usage: %s -image <image> [flags] {command}
 
+Flags:  
+   -image <image>
+       Specifies the image to work on
+
+   -log-level <level>
+       Sets the log level (trace, debug, info, warn, error, fatal, panic)
+	   Default is 'error'
+       
 Commands:
-   list: Lists files in the image
-   info <file>: Shows information about <file> in the image
-   read <src> <dest>: Copies file from <src> in the image to <dest> on host's file system
-   write <src> <dest>: Copies file from <src> on host's file system to <dest> in the image
+   help:
+	   Shows this help message
+
+   list:
+       Lists files in the image   
+
+   info <file>:
+       Shows information about <file> in the image
+
+   read <src> <dest>:
+       Copies file from <src> in the image to <dest> on host's file system
+
+   write <src> <dest>:
+       Copies file from <src> on host's file system to <dest> in the image
+
+   mount <mountpoint>:
+       Mounts the image at <mountpoint> using FUSE; does not return until unmounted
 `, os.Args[0])
 	os.Exit(1)
 }
 
 func readFromImage(fs *filesystem.FileSystem, src, dest string) {
-	// TODO: Implement read command
+	fmt.Fprintf(os.Stderr, "read not implemented yet 😢\n")
+	// TODO(asginer): Implement read command
 }
 
 func writeToImage(fs *filesystem.FileSystem, src, dest string) {
-	// TODO: Implement write command
+	fmt.Fprintf(os.Stderr, "write not implemented yet 😢\n")
+	// TODO(asginer): Implement write command
 }
 
 func listFiles(fs *filesystem.FileSystem) {
@@ -78,7 +104,7 @@ func listFiles(fs *filesystem.FileSystem) {
 		return
 	}
 	for _, de := range entries {
-		fmt.Printf("%s (%d bytes)\n", de.Name(), de.Size())
+		fmt.Println(de.Name())
 	}
 }
 
@@ -111,22 +137,26 @@ func initLogging(level zerolog.Level) {
 
 }
 
-func test(fs *filesystem.FileSystem) {
-	fmt.Printf("Running demo test...\n")
-	disk, err := disk.Open("disk.img")
-	if err != nil {
-		log.Error().Err(err).Msg("Can't open image")
-		return
-	}
-	defer disk.Close()
+func mount(fs *filesystem.FileSystem, mountpoint string) {
+	fmt.Printf("Mounting image to %s...\n", mountpoint)
 
-	entries, err := fs.ListFiles(filesystem.AllFiles)
+	// FUSE-Verbindung aufbauen
+	c, err := bazil_fuse.Mount(
+		mountpoint,
+		bazil_fuse.FSName("Native Oberon FS"),
+		bazil_fuse.Subtype("native-oberon-fs"),
+	)
 	if err != nil {
-		log.Error().Err(err).Msg("Can't list files")
+		fmt.Fprintf(os.Stderr, "Error mounting FUSE filesystem: %s\n", err)
 		return
 	}
-	for _, de := range entries {
-		log.Info().Msgf("Found file: %s (%d bytes)", de.Name(), de.Size())
+	defer c.Close()
+
+	// Server starten
+	fmt.Printf("Image available at %s, unmount to continue.\n", mountpoint)
+	err = bazil_fuse_fs.Serve(c, fuse.NewFS(fs))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error serving FUSE filesystem: %s\n", err)
 	}
 }
 
@@ -156,35 +186,26 @@ func main() {
 	fs := filesystem.New(disk)
 	defer fs.Close()
 
-	f, err := fs.NewFile("XBM2.txt")
-	if err != nil {
-		log.Err(err).Msgf("Failed to create new file: %v", err)
-		os.Exit(1)
-	}
-	err = f.WriteAt(0, []byte("DAS IST EIN TEST VON AUSSERHALB!!!!"))
-	if err != nil {
-		log.Err(err).Msgf("Failed to write to new file: %v", err)
-		os.Exit(1)
-	}
-	err = f.Register()
-	if err != nil {
-		log.Err(err).Msgf("Failed to register new file: %v", err)
-		os.Exit(1)
-	}
-
 	args := flag.Args()
 	pos := 0
 	for pos < len(args) {
 		switch args[pos] {
-		case "DEMO":
-			test(fs)
+		case "mount":
+			pos++
+			if pos >= len(args) {
+				fmt.Fprintf(os.Stderr, "not enough arguments for mount command. Format is \"mount <mountpoint>\"\n")
+				os.Exit(1)
+			}
+			mountpoint := args[pos]
+			pos++
+			mount(fs, mountpoint)
 		case "list":
 			pos++
 			listFiles(fs)
 		case "info":
 			pos++
 			if pos >= len(args) {
-				usage()
+				fmt.Fprintf(os.Stderr, "not enough arguments for info command. Format is \"info <file>\"\n")
 				os.Exit(1)
 			}
 			file := args[pos]
@@ -192,21 +213,23 @@ func main() {
 			fileInfo(fs, file)
 		case "read":
 			pos++
-			if pos+2 >= len(args) {
-				usage()
+			if pos+2 > len(args) {
+				fmt.Fprintf(os.Stderr, "not enough arguments for read command. Format is \"read <src> <dest>\"\n")
 				os.Exit(1)
 			}
 			src := args[pos]
 			dest := args[pos+1]
+			pos += 2
 			readFromImage(fs, src, dest)
 		case "write":
 			pos++
-			if pos+2 >= len(args) {
-				usage()
+			if pos+2 > len(args) {
+				fmt.Fprintf(os.Stderr, "not enough arguments for write command. Format is \"write <src> <dest>\"\n")
 				os.Exit(1)
 			}
 			src := args[pos]
 			dest := args[pos+1]
+			pos += 2
 			writeToImage(fs, src, dest)
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[pos])
