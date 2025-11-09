@@ -9,7 +9,7 @@ import (
 
 const (
 	SectorSize       = 2048
-	SectorMultiplier = 29 // Oberon sector number is multiplied by 29
+	SectorMultiplier = uint32(29) // Oberon sector number is multiplied by 29
 
 	oberonPartitionType = 79 // Native Oberon partition type
 
@@ -49,7 +49,7 @@ type nodeRec struct {
 }
 
 func Open(imagePath string) (*Disk, error) {
-	f, err := os.Open(imagePath)
+	f, err := os.OpenFile(imagePath, os.O_RDWR, 0644)
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +139,6 @@ func (d *Disk) init() error {
 	b := make([]byte, bs)
 	d.getBlocks(d.partitionOffset, 1, b, 0) // read boot block to get offset
 
-	fmt.Printf("Boot block dump:\n")
-	fmt.Printf("%s\n", util.HexDump(b, 0, len(b)))
-
 	if util.ReadLEUint16(b, 0) != 0xAA55 {
 		if !(b[3] == 'O' && b[4] == 'B' && b[5] == 'E' && b[6] == 'R' && b[7] == 'O' && b[8] == 'N') {
 			return fmt.Errorf("init: bad boot block signature: %s", util.HexDump(b, 0, 9))
@@ -169,6 +166,8 @@ func (d *Disk) init() error {
 }
 
 func (d *Disk) getBlocks(start, num uint32, buf []byte, ofs int) error {
+	// log.Debug().Msgf("getBlocks: reading %d blocks starting at %d", num, start)
+
 	b := make([]byte, num*bs)
 	d.f.Seek(int64(start*bs), 0)
 	count, err := d.f.Read(b)
@@ -183,13 +182,22 @@ func (d *Disk) getBlocks(start, num uint32, buf []byte, ofs int) error {
 }
 
 func (d *Disk) putBlocks(start, num uint32, buf []byte, ofs int) error {
+	// log.Debug().Msgf("putBlocks: writing %d blocks starting at %d", num, start)
+
 	b := make([]byte, num*bs)
 	if len(buf[ofs:]) < int(num*bs) {
-		return fmt.Errorf("getBlocks: short buffer, expected at least %d bytes, got %d", num*bs, len(buf[ofs:]))
+		return fmt.Errorf("putBlocks: short buffer, expected at least %d bytes, got %d", num*bs, len(buf[ofs:]))
 	}
 	copy(b, buf[ofs:])
-	d.f.Seek(int64(start*bs), 0)
-	d.f.Write(b)
+
+	_, err := d.f.Seek(int64(start*bs), 0)
+	if err != nil {
+		panic(err)
+	}
+	_, err = d.f.Write(b)
+	if err != nil {
+		panic(err)
+	}
 	return nil
 }
 

@@ -27,3 +27,10 @@ func ReadLEUint16(b []byte, offset int) uint16 {
 func StringFromBytes(b []byte) string {
 	return string(bytes.TrimRight(b, "\x00"))
 }
+
+func WriteFixedLengthString(b []byte, offset int, length int, s string) {
+	copy(b[offset:], s)
+	for i := len(s); i < length; i++ {
+		b[offset+i] = 0
+	}
+}
