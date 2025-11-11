@@ -97,6 +97,11 @@ func (f *File) WriteAt(pos uint32, data []byte) error {
 	f.fs.disk.PutSector(sectorAddr, sectorData)
 	data = data[remainingInFirst:]
 
+	if firstSectorIdx == 0 {
+		// fileHeader was modified, read it again
+		f.header = fileHeader(f.fs.disk.MustGetSector(f.headerAddr))
+	}
+
 	// Fill full sectors in the middle
 	sectorIdx := firstSectorIdx + 1
 	for len(data) >= sectorSize {
@@ -204,7 +209,11 @@ func (f *File) addSector(index, addr uint32) {
 	extTable := f.header.getExtensionTable()
 	for len(extTable) <= int(indexBlockIndex) {
 		// Allocate new index block
-		newIndexBlockAddr := f.fs.AllocSector(extTable[len(extTable)-1])
+		hint := uint32(0)
+		if len(extTable) > 0 {
+			hint = extTable[len(extTable)-1]
+		}
+		newIndexBlockAddr := f.fs.AllocSector(hint)
 		extTable = append(extTable, newIndexBlockAddr)
 		f.header.setExtensionTable(extTable)
 	}
