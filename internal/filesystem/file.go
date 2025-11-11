@@ -205,7 +205,6 @@ func (f *File) addSector(index, addr uint32) {
 		panic("file too large")
 	}
 
-	var indexBlockAddr uint32
 	extTable := f.header.getExtensionTable()
 	for len(extTable) <= int(indexBlockIndex) {
 		// Allocate new index block
@@ -216,8 +215,11 @@ func (f *File) addSector(index, addr uint32) {
 		newIndexBlockAddr := f.fs.AllocSector(hint)
 		extTable = append(extTable, newIndexBlockAddr)
 		f.header.setExtensionTable(extTable)
+
+		// Make sure index block is empty!
+		f.fs.disk.MustPutSector(newIndexBlockAddr, disk.Sector{})
 	}
-	indexBlockAddr = extTable[indexBlockIndex]
+	indexBlockAddr := extTable[indexBlockIndex]
 
 	indexBlock := indexSector(f.fs.disk.MustGetSector(indexBlockAddr))
 	indexBlock.setEntry(index%indexSize, addr)
