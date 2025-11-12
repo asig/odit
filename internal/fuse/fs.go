@@ -63,7 +63,7 @@ func (f filesys) Root() (fuse_fs.Node, error) {
 	return &dirNode{fs: f.fs, uid: f.uid, gid: f.gid}, nil
 }
 
-func (d dirNode) Attr(ctx context.Context, a *fuse.Attr) error {
+func (d *dirNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	a.Inode = 1
 	a.Mode = os.ModeDir | 0755
 	a.Uid = d.uid
@@ -71,7 +71,7 @@ func (d dirNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	return nil
 }
 
-func (d dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error) {
+func (d *dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error) {
 	log.Debug().Msgf("FUSE Lookup for %s", name)
 	file, err := d.fs.Find(name)
 	if err != nil {
@@ -86,7 +86,7 @@ func (d dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error) 
 	return &fileNode{file: file, uid: d.uid, gid: d.gid}, nil
 }
 
-func (d dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
+func (d *dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	log.Debug().Msgf("FUSE ReadDirAll")
 	var res []fuse.Dirent
 	entries, err := d.fs.ListFiles(filesystem.AllFiles)
@@ -102,7 +102,7 @@ func (d dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	return res, nil
 }
 
-func (d dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fuse_fs.Node, fuse_fs.Handle, error) {
+func (d *dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fuse_fs.Node, fuse_fs.Handle, error) {
 	log.Debug().Msgf("FUSE Create for %s", req.Name)
 
 	file, err := d.fs.Find(req.Name)
@@ -122,12 +122,12 @@ func (d dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse
 	}
 	f.Register()
 
-	node := fileNode{file: f, uid: d.uid, gid: d.gid}
-	handle := fileHandle{file: &node}
+	node := &fileNode{file: f, uid: d.uid, gid: d.gid}
+	handle := &fileHandle{file: node}
 	return node, handle, nil
 }
 
-func (d dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
+func (d *dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	log.Debug().Msgf("FUSE Remove for %s", req.Name)
 
 	f, err := d.fs.Find(req.Name)
@@ -144,7 +144,38 @@ func (d dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	return nil
 }
 
-func (f fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
+func (d *dirNode) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fuse_fs.Node) error {
+	log.Debug().Msgf("FUSE Rename from %s to %s", req.OldName, req.NewName)
+
+	var newDirNode *dirNode
+	var ok bool
+	if newDirNode, ok = newDir.(*dirNode); !ok {
+		log.Debug().Msgf("FUSE Rename: newDir is not a dirNode")
+		return syscall.EINVAL
+	}
+	if newDirNode.fs != d.fs {
+		log.Debug().Msgf("FUSE Rename: cross-filesystem rename not supported")
+		return syscall.EXDEV
+	}
+
+	oldF, err := d.fs.Find(req.OldName)
+	if err != nil {
+		log.Debug().Msgf("FUSE Rename: error finding file %s: %v", req.OldName, err)
+		return err
+	}
+	if oldF == nil {
+		log.Debug().Msgf("FUSE Rename: file %s not found", req.OldName)
+		return syscall.ENOENT
+	}
+
+	oldF.Unregister()
+	oldF.SetName(req.NewName)
+	err = oldF.Register()
+
+	return err
+}
+
+func (f *fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	log.Debug().Msgf("FUSE Attr for file %s", f.file.Name())
 	a.Inode = uint64(f.file.HeaderAddr())
 	a.Mode = 0666 // regular file with rw-rw-rw- permissions
@@ -158,12 +189,12 @@ func (f fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	return nil
 }
 
-func (f fileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fuse_fs.Handle, error) {
+func (f *fileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fuse_fs.Handle, error) {
 	log.Debug().Msgf("FUSE Open for file %s: req = %+v", f.file.Name(), req)
-	return fileHandle{file: &f}, nil
+	return &fileHandle{file: f}, nil
 }
 
-func (h fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
+func (h *fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	log.Debug().Msgf("FUSE Read for file %s: offset = %d, size = %d, file-size = %d", h.file.file.Name(), req.Offset, req.Size, h.file.file.Size())
 	if req.Offset >= int64(h.file.file.Size()) {
 		log.Debug().Msgf("FUSE Read for file %s: offset beyond EOF, returning empty data", h.file.file.Name())
@@ -185,19 +216,19 @@ func (h fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.
 	return nil
 }
 
-func (h fileHandle) Write(ctx context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
+func (h *fileHandle) Write(ctx context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
 	log.Debug().Msgf("FUSE Write for file %s: req = %+v", h.file.file.Name(), req)
 	h.file.file.WriteAt(uint32(req.Offset), req.Data)
 	resp.Size = len(req.Data)
 	return nil
 }
 
-func (h fileHandle) Flush(ctx context.Context, req *fuse.FlushRequest) error {
+func (h *fileHandle) Flush(ctx context.Context, req *fuse.FlushRequest) error {
 	log.Debug().Msgf("FUSE Flush for file %s", h.file.file.Name())
 	return nil
 }
 
-func (h fileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
+func (h *fileHandle) Release(ctx context.Context, req *fuse.ReleaseRequest) error {
 	log.Debug().Msgf("FUSE Release for file %s", h.file.file.Name())
 	return nil
 }

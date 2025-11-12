@@ -226,6 +226,11 @@ func (f *File) addSector(index, addr uint32) {
 	f.fs.disk.PutSector(indexBlockAddr, disk.Sector(indexBlock))
 }
 
+func (f *File) SetName(name string) {
+	f.header.setName(name)
+	f.fs.disk.MustPutSector(f.headerAddr, disk.Sector(f.header))
+}
+
 func (f *File) Register() error {
 	existingFile, err := f.fs.Find(f.Name())
 	if err != nil {
@@ -238,5 +243,18 @@ func (f *File) Register() error {
 	if err != nil {
 		return fmt.Errorf("error inserting file: %s", err)
 	}
+	return nil
+}
+
+func (f *File) Unregister() error {
+	existingFile, err := f.fs.Find(f.Name())
+	if err != nil {
+		return fmt.Errorf("error checking existing file: %s", err)
+	}
+	if existingFile == nil {
+		// File not registered -> nothing to do
+		return nil
+	}
+	f.fs.Remove(f.Name())
 	return nil
 }
