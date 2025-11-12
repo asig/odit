@@ -22,6 +22,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -190,6 +192,10 @@ func fileInfo(fs *filesystem.FileSystem, file string) {
 func initLogging(level zerolog.Level) {
 	zerolog.SetGlobalLevel(level)
 	zerolog.TimeFieldFormat = time.RFC3339Nano // Need to keep this, or we won't get millis, no matter what we say in TimeFormat below?
+	zerolog.CallerMarshalFunc = func(pc uintptr, file string, line int) string {
+		// only show the file name, not the full path
+		return filepath.Base(file) + ":" + strconv.Itoa(line)
+	}
 	log.Logger = zerolog.
 		New(zerolog.ConsoleWriter{
 			Out:        os.Stdout,
