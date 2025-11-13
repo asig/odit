@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/asig/odit/internal/disk"
@@ -39,10 +40,13 @@ const (
 )
 
 type FileSystem struct {
-	disk                 *disk.Disk
+	disk *disk.Disk
+
+	sectorMapMutex       sync.RWMutex
 	sectorReservationMap util.BitSet
 	numUsedSectors       uint32
 
+	filesMutex sync.RWMutex
 	files      []dirEntry
 	dirPages   []uint32
 	filesDirty bool
@@ -73,6 +77,9 @@ func (fs *FileSystem) Close() error {
 
 func (fs *FileSystem) writeDirectoryToDisk() error {
 	log.Debug().Msg("Writing directory to disk")
+
+	fs.filesMutex.Lock()
+	defer fs.filesMutex.Unlock()
 
 	// Ensure all files are sorted by name
 	sort.Slice(fs.files, func(i, j int) bool {
@@ -178,6 +185,9 @@ func (fs *FileSystem) buildDirTree(parent *dirPage, entries []dirEntry, addrProv
 }
 
 func (fs *FileSystem) init() {
+	fs.filesMutex.Lock()
+	defer fs.filesMutex.Unlock()
+
 	fs.sectorReservationMap.Set(0) // reserve sector 0 (illegal to use)
 	fs.numUsedSectors = 0
 
@@ -230,19 +240,25 @@ func (fs *FileSystem) init() {
 }
 
 func (fs *FileSystem) Find(name string) (*File, error) {
-	e, err := fs.findFile(func(entry dirEntry) bool {
-		return entry.name == name
-	})
-	if err != nil {
-		return nil, err
+	fs.filesMutex.RLock()
+	defer fs.filesMutex.RUnlock()
+
+	return fs.find_locked(name)
+}
+
+func (fs *FileSystem) find_locked(name string) (*File, error) {
+	for _, entry := range fs.files {
+		if entry.name == name {
+			return fs.NewFileFromFileHeader(entry.adr)
+		}
 	}
-	if e == nil {
-		return nil, nil
-	}
-	return fs.NewFileFromFileHeader(e.adr)
+	return nil, nil
 }
 
 func (fs *FileSystem) Remove(name string) bool {
+	fs.filesMutex.Lock()
+	defer fs.filesMutex.Unlock()
+
 	for idx, entry := range fs.files {
 		if entry.name == name {
 			// Remove file entry
@@ -254,15 +270,6 @@ func (fs *FileSystem) Remove(name string) bool {
 	return false
 }
 
-func (fs *FileSystem) findFile(pred func(dirEntry) bool) (e *dirEntry, err error) {
-	for _, entry := range fs.files {
-		if pred(entry) {
-			return &entry, nil
-		}
-	}
-	return nil, nil
-}
-
 type ListFileFilter func(*File) bool
 
 var AllFiles ListFileFilter = func(f *File) bool {
@@ -270,6 +277,9 @@ var AllFiles ListFileFilter = func(f *File) bool {
 }
 
 func (fs *FileSystem) ListFiles(pred ListFileFilter) ([]*File, error) {
+	fs.filesMutex.RLock()
+	defer fs.filesMutex.RUnlock()
+
 	var files []*File
 	for _, entry := range fs.files {
 		f, _ := fs.NewFileFromFileHeader(entry.adr)
@@ -288,6 +298,9 @@ func (fs *FileSystem) IsSectorFree(addr uint32) bool {
 }
 
 func (fs *FileSystem) FreeSector(addr uint32) {
+	fs.sectorMapMutex.Lock()
+	defer fs.sectorMapMutex.Unlock()
+
 	if addr%disk.SectorMultiplier != 0 {
 		panic(fmt.Sprintf("FreeSector: addr not a multiple of %d", disk.SectorMultiplier))
 	}
@@ -296,6 +309,9 @@ func (fs *FileSystem) FreeSector(addr uint32) {
 }
 
 func (fs *FileSystem) markSectorUsed(addr uint32) {
+	fs.sectorMapMutex.Lock()
+	defer fs.sectorMapMutex.Unlock()
+
 	if addr%disk.SectorMultiplier != 0 {
 		panic(fmt.Sprintf("markSectorUsed: addr not a multiple of %d", disk.SectorMultiplier))
 	}
@@ -306,6 +322,13 @@ func (fs *FileSystem) markSectorUsed(addr uint32) {
 // AllocSector allocates a new sector. "hint" can be previously allocated
 // sector to preserve adjacency, or 0 if previous sector not known.
 func (fs *FileSystem) AllocSector(hint uint32) uint32 {
+	fs.sectorMapMutex.Lock()
+	defer fs.sectorMapMutex.Unlock()
+
+	if hint%disk.SectorMultiplier != 0 {
+		panic(fmt.Sprintf("AllocSector: hint not a multiple of %d", disk.SectorMultiplier))
+	}
+
 	if hint > fs.disk.Size() {
 		hint = 0
 	}

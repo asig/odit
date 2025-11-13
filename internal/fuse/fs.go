@@ -21,6 +21,7 @@ package fuse
 import (
 	"context"
 	"os"
+	"sync"
 	"syscall"
 
 	fuse "bazil.org/fuse"
@@ -39,12 +40,16 @@ type dirNode struct {
 	fs  *filesystem.FileSystem
 	uid uint32
 	gid uint32
+
+	mutex sync.RWMutex
 }
 
 type fileNode struct {
 	file *filesystem.File
 	uid  uint32
 	gid  uint32
+
+	mutex sync.RWMutex
 }
 
 type fileHandle struct {
@@ -64,6 +69,11 @@ func (f filesys) Root() (fuse_fs.Node, error) {
 }
 
 func (d *dirNode) Attr(ctx context.Context, a *fuse.Attr) error {
+	log.Debug().Msgf("FUSE Attr for root directory")
+
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
 	a.Inode = 1
 	a.Mode = os.ModeDir | 0755
 	a.Uid = d.uid
@@ -73,6 +83,10 @@ func (d *dirNode) Attr(ctx context.Context, a *fuse.Attr) error {
 
 func (d *dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error) {
 	log.Debug().Msgf("FUSE Lookup for %s", name)
+
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
 	file, err := d.fs.Find(name)
 	if err != nil {
 		log.Debug().Msgf("FUSE Lookup: error finding file %s: %v", name, err)
@@ -88,6 +102,10 @@ func (d *dirNode) Lookup(ctx context.Context, name string) (fuse_fs.Node, error)
 
 func (d *dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 	log.Debug().Msgf("FUSE ReadDirAll")
+
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
 	var res []fuse.Dirent
 	entries, err := d.fs.ListFiles(filesystem.AllFiles)
 	if err != nil {
@@ -104,6 +122,9 @@ func (d *dirNode) ReadDirAll(ctx context.Context) ([]fuse.Dirent, error) {
 
 func (d *dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fuse.CreateResponse) (fuse_fs.Node, fuse_fs.Handle, error) {
 	log.Debug().Msgf("FUSE Create for %s", req.Name)
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 
 	file, err := d.fs.Find(req.Name)
 	if err != nil {
@@ -130,6 +151,9 @@ func (d *dirNode) Create(ctx context.Context, req *fuse.CreateRequest, resp *fus
 func (d *dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 	log.Debug().Msgf("FUSE Remove for %s", req.Name)
 
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
 	f, err := d.fs.Find(req.Name)
 	if err != nil {
 		log.Debug().Msgf("FUSE Remove: error finding file %s: %v", req.Name, err)
@@ -146,6 +170,9 @@ func (d *dirNode) Remove(ctx context.Context, req *fuse.RemoveRequest) error {
 
 func (d *dirNode) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fuse_fs.Node) error {
 	log.Debug().Msgf("FUSE Rename from %s to %s", req.OldName, req.NewName)
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
 
 	var newDirNode *dirNode
 	var ok bool
@@ -177,6 +204,10 @@ func (d *dirNode) Rename(ctx context.Context, req *fuse.RenameRequest, newDir fu
 
 func (f *fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 	log.Debug().Msgf("FUSE Attr for file %s", f.file.Name())
+
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+
 	a.Inode = uint64(f.file.HeaderAddr())
 	a.Mode = 0666 // regular file with rw-rw-rw- permissions
 	a.Size = uint64(f.file.Size())
@@ -191,11 +222,19 @@ func (f *fileNode) Attr(ctx context.Context, a *fuse.Attr) error {
 
 func (f *fileNode) Open(ctx context.Context, req *fuse.OpenRequest, resp *fuse.OpenResponse) (fuse_fs.Handle, error) {
 	log.Debug().Msgf("FUSE Open for file %s: req = %+v", f.file.Name(), req)
+
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
 	return &fileHandle{file: f}, nil
 }
 
 func (h *fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse.ReadResponse) error {
 	log.Debug().Msgf("FUSE Read for file %s: offset = %d, size = %d, file-size = %d", h.file.file.Name(), req.Offset, req.Size, h.file.file.Size())
+
+	h.file.mutex.RLock()
+	defer h.file.mutex.RUnlock()
+
 	if req.Offset >= int64(h.file.file.Size()) {
 		log.Debug().Msgf("FUSE Read for file %s: offset beyond EOF, returning empty data", h.file.file.Name())
 		resp.Data = []byte{}
@@ -218,6 +257,10 @@ func (h *fileHandle) Read(ctx context.Context, req *fuse.ReadRequest, resp *fuse
 
 func (h *fileHandle) Write(ctx context.Context, req *fuse.WriteRequest, resp *fuse.WriteResponse) error {
 	log.Debug().Msgf("FUSE Write for file %s: req = %+v", h.file.file.Name(), req)
+
+	h.file.mutex.Lock()
+	defer h.file.mutex.Unlock()
+
 	h.file.file.WriteAt(uint32(req.Offset), req.Data)
 	resp.Size = len(req.Data)
 	return nil
